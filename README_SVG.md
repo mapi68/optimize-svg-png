@@ -18,7 +18,7 @@ This script automates the entire process:
 
 | Step | Tool | What happens |
 |------|------|-------------|
-| 1 | Inkscape | Converts `<text>` and `<tspan>` to `<path>` (removes font dependency), fits canvas to drawing |
+| 1 | Inkscape | Converts `<text>` and `<tspan>` to `<path>` (removes font dependency), preserves original canvas |
 | 2 | Python | Reads `fill` values from CSS `<style>` block, applies them inline on each element, removes the `<style>` block |
 | 3 | scour | Removes metadata, comments, unused IDs, shortens colour values, reduces coordinate precision, enables viewBox |
 
@@ -58,11 +58,19 @@ The script is now available system-wide as `optimize_svg`.
 ## Usage
 
 ```bash
-optimize_svg <folder>
+optimize_svg [--trim] <folder>
 ```
 
 The original files are backed up to `<folder>_backup` before processing.
 If the backup folder already exists the script stops for safety, preventing accidental overwrites of a previous backup.
+
+### Options
+
+`--trim` — fit the canvas to the drawing content after text-to-path conversion, removing empty margins.
+
+> **Warning:** `--trim` uses Inkscape's `export-area-drawing`, which calculates the bounding box without accounting for strokes that extend outside path geometry. This can clip edges (typically the top or sides) on files where strokes run close to the canvas border. Use only when you are sure the files have no such strokes.
+
+Without `--trim` the original canvas dimensions (viewBox, width, height) are preserved exactly.
 
 ### Example
 
@@ -75,7 +83,7 @@ Backup saved to: /home/user/picons/svg_backup
 Starting SVG optimisation in: /home/user/picons/svg
 Files found: 16  |  CPU cores: 8
 --------------------------------------------------------
-[1/3] Inkscape: converting text to path and fitting canvas (sequential)...
+[1/3] Inkscape: converting text to path, preserving canvas (sequential)...
       Done.
 --------------------------------------------------------
 [2/3] Inlining CSS class styles and removing <style> block...

@@ -11,7 +11,7 @@ Inkscape runs in shell mode (single launch), Python and scour run in parallel on
 
 ### What it does
 
-- **Step 1 – Inkscape:** converts `<text>` to `<path>`, fits canvas to drawing
+- **Step 1 – Inkscape:** converts `<text>` to `<path>`, preserves original canvas (use `--trim` to fit canvas to drawing)
 - **Step 2 – Python:** inlines CSS `fill` values, removes `<style>` block
 - **Step 3 – scour:** cleans and compresses SVG (metadata, comments, IDs, precision, viewBox)
 
@@ -32,7 +32,7 @@ chmod +x ~/.local/bin/optimize_svg
 ### Usage
 
 ```bash
-optimize_svg <folder>
+optimize_svg [--trim] <folder>
 ```
 
 For full documentation see [README_SVG.md](README_SVG.md).

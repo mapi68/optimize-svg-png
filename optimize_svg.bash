@@ -10,7 +10,7 @@
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") <folder>
+Usage: $(basename "$0") [--trim] <folder>
 
 Converts text to path, inlines CSS styles and optimises all SVG files
 in the specified folder. Equivalent to Inkscape's "Optimised SVG Output"
@@ -24,7 +24,8 @@ DESCRIPTION
   Step 1 - Inkscape (sequential, single launch via --shell):
     - Converts <text> and <tspan> elements to <path>
     - Files are no longer dependent on locally installed fonts
-    - Fits canvas to drawing (removes empty margins)
+    - By default preserves the original canvas (viewBox/width/height)
+    - With --trim: fits canvas to drawing (removes empty margins)
 
   Step 2 - Python (parallel, all CPU cores):
     - Reads fill values from CSS classes in <style> block
@@ -50,6 +51,10 @@ REQUIREMENTS
   - scour                   (auto-installed via apt if missing)
 
 ARGUMENTS
+  --trim     Fit canvas to drawing content (removes empty margins).
+             Warning: may clip edges on files with strokes near the border.
+             Default: preserve the original canvas dimensions.
+
   <folder>   Path to the folder containing the .svg files
              Accepts both absolute and relative paths
 
@@ -64,6 +69,7 @@ EXAMPLES (after installation)
   optimize_svg ./my_svgs
   optimize_svg /home/user/projects/logos
   optimize_svg /mnt/c/Users/user/Desktop/svg
+  optimize_svg --trim ./my_svgs
 EOF
 }
 
@@ -73,12 +79,29 @@ if [[ $# -eq 0 || "$1" == "-h" || "$1" == "--help" ]]; then
   exit 0
 fi
 
+# Parse arguments
+TRIM=0
+POSITIONAL=()
+for arg in "$@"; do
+  case "$arg" in
+    --trim) TRIM=1 ;;
+    -*) echo "Error: unknown option '$arg'" >&2; usage; exit 1 ;;
+    *) POSITIONAL+=("$arg") ;;
+  esac
+done
+
+if [[ ${#POSITIONAL[@]} -ne 1 ]]; then
+  echo "Error: exactly one folder argument required." >&2
+  usage
+  exit 1
+fi
+
 # Resolve absolute path of the folder
-DIR=$(realpath "$1")
+DIR=$(realpath "${POSITIONAL[0]}")
 
 # Check that the folder exists
 if [[ ! -d "$DIR" ]]; then
-  echo "Error: '$1' is not a valid folder." >&2
+  echo "Error: '${POSITIONAL[0]}' is not a valid folder." >&2
   exit 1
 fi
 
@@ -162,13 +185,26 @@ echo "--------------------------------------------------------"
 
 TIME_START=$(date +%s)
 
-# STEP 1: text-to-path + fit canvas to drawing with Inkscape
+# STEP 1: text-to-path with Inkscape
 # --shell mode: single Inkscape launch for all files.
 # Inkscape writes <name>_out.svg when input and output type are both SVG.
 # We rename them back immediately after.
-echo "[1/3] Inkscape: converting text to path and fitting canvas (sequential)..."
+#
+# export-area-page preserves the original canvas (viewBox/width/height).
+# export-area-drawing is intentionally avoided: it recalculates the bounding
+# box without accounting for strokes that extend outside path geometry,
+# which causes edges (typically the top) to be clipped.
+# Use --trim to enable export-area-drawing when you need to remove large
+# empty margins and are certain no stroke will be cut.
+if [[ "$TRIM" == "1" ]]; then
+  EXPORT_AREA="export-area-drawing"
+  echo "[1/3] Inkscape: converting text to path, trimming canvas (sequential)..."
+else
+  EXPORT_AREA="export-area-page"
+  echo "[1/3] Inkscape: converting text to path, preserving canvas (sequential)..."
+fi
 for f in "${FILES[@]}"; do
-  printf 'file-open:%s; select-all; export-text-to-path; export-area-drawing; export-plain-svg; export-filename:%s; export-do; file-close\n' "$f" "$f"
+  printf 'file-open:%s; select-all; export-text-to-path; %s; export-plain-svg; export-filename:%s; export-do; file-close\n' "$f" "$EXPORT_AREA" "$f"
 done | inkscape --shell 2>/dev/null
 for f in "${FILES[@]}"; do
   OUT="${f%.svg}_out.svg"
