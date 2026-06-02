@@ -196,7 +196,7 @@ TIME_START=$(date +%s)
 # which causes edges (typically the top) to be clipped.
 # Use --trim to enable export-area-drawing when you need to remove large
 # empty margins and are certain no stroke will be cut.
-if [[ "$TRIM" == "1" ]]; then
+if [[ $TRIM -eq 1 ]]; then
   EXPORT_AREA="export-area-drawing"
   echo "[1/3] Inkscape: converting text to path, trimming canvas (sequential)..."
 else
@@ -220,6 +220,7 @@ echo "--------------------------------------------------------"
 # Written to a temp file to avoid heredoc quoting issues with single/double quotes.
 
 INLINE_PY=$(mktemp --suffix=".py")
+trap 'rm -f "$INLINE_PY"' EXIT
 cat > "$INLINE_PY" << 'PYEOF'
 import sys, re
 
@@ -306,8 +307,6 @@ printf '%s\n' "${FILES[@]}" | xargs -P "$CORES" -I {} bash -c '
   fi
 ' _ {}
 SCOUR_EXIT=$?
-
-rm -f "$INLINE_PY"
 
 echo "--------------------------------------------------------"
 TIME_END=$(date +%s)
