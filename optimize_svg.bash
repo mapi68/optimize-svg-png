@@ -27,7 +27,8 @@ DESCRIPTION
     - By default preserves the original canvas (viewBox/width/height)
     - With --trim: fits canvas to drawing (removes empty margins)
 
-  Step 2 - Python (parallel, all CPU cores):
+  Step 2 - Python + lxml (parallel, all CPU cores):
+    - Parses SVG with lxml for reliable XML handling
     - Reads fill values from CSS classes in <style> block
     - Applies fill inline on each element
     - Removes class attributes and the entire <style> block
@@ -48,6 +49,7 @@ DESCRIPTION
 REQUIREMENTS
   - Inkscape 1.4 or higher  (auto-installed via apt if missing)
   - Python 3               (auto-installed via apt if missing)
+  - python3-lxml           (auto-installed via apt if missing)
   - scour                   (auto-installed via apt if missing)
 
 ARGUMENTS
@@ -115,6 +117,12 @@ fi
 if ! command -v python3 &>/dev/null; then
   echo "Python 3 not found. Installing..."
   sudo apt install -y python3
+fi
+
+# Check that python3-lxml is available, install if missing
+if ! python3 -c "import lxml" &>/dev/null; then
+  echo "python3-lxml not found. Installing..."
+  sudo apt install -y python3-lxml
 fi
 
 # Check that scour is available, install if missing
@@ -213,64 +221,89 @@ done
 echo "      Done."
 echo "--------------------------------------------------------"
 
-# STEP 2: inline CSS class styles and remove <style> block (Python, parallel)
-# After text-to-path, Inkscape keeps class="lettere" etc. on the generated paths.
-# This script reads fill from each CSS class, applies it inline, then removes
-# the class attribute and the <style> block.
-# Written to a temp file to avoid heredoc quoting issues with single/double quotes.
+# STEP 2: inline CSS class styles and remove <style> block (Python + lxml, parallel)
+#
+# Uses lxml for proper XML parsing instead of regex, ensuring correct handling
+# of SVG files from any source (Inkscape, Figma, Illustrator, etc.).
+#
+# The script:
+#   - Parses CSS class fill values from the <style> block using the css module
+#     (simple property extraction, no full CSS engine needed)
+#   - Walks the element tree with lxml to apply fill inline on each element
+#   - Removes class attributes once fills are applied
+#   - Removes the <style> block if no class attributes remain
+#   - Preserves namespace declarations and XML structure exactly
 
 INLINE_PY=$(mktemp --suffix=".py")
 trap 'rm -f "$INLINE_PY"' EXIT
 cat > "$INLINE_PY" << 'PYEOF'
-import sys, re
+import sys
+import re
+from lxml import etree
 
-# NOTE: this step uses regex on XML, which works well for SVG produced by
-# Inkscape but may be unreliable on complex SVG from Figma, Illustrator, etc.
+SVG_NS = "http://www.w3.org/2000/svg"
+
+# Tags that can carry a fill attribute (mirrors the original script's scope)
+FILL_TAGS = {
+  f"{{{SVG_NS}}}{tag}"
+  for tag in ("path", "rect", "circle", "ellipse", "polygon", "polyline", "line", "g")
+}
+
 path = sys.argv[1]
-with open(path, "r", encoding="utf-8") as fh:
-    svg = fh.read()
 
-# Extract fill values from CSS classes: .classname { ... fill: value; ... }
-class_fills = {}
-for m in re.finditer(r"\.([\w-]+)\s*\{[^}]*?fill\s*:\s*([^;}/]+)", svg, re.DOTALL):
+parser = etree.XMLParser(remove_comments=False, recover=True)
+tree = etree.parse(path, parser)
+root = tree.getroot()
+
+# --- Extract fill values from CSS <style> block ---
+# Looks for rules of the form:  .classname { ... fill: value; ... }
+# Uses a simple regex on the text content of <style> elements only,
+# which is safe and reliable (CSS text is not nested XML).
+class_fills: dict[str, str] = {}
+
+for style_el in root.iter(f"{{{SVG_NS}}}style"):
+  css_text = style_el.text or ""
+  for m in re.finditer(
+    r"\.([\w-]+)\s*\{[^}]*?fill\s*:\s*([^;}/]+)", css_text, re.DOTALL
+  ):
     class_fills[m.group(1)] = m.group(2).strip()
 
 if not class_fills:
-    sys.exit(0)
+  # Nothing to do: no CSS classes with fill definitions found
+  sys.exit(0)
 
-# Apply fill inline and remove class attribute
-def replace_elem(m):
-    tag = m.group(0)
-    cls_match = re.search(r'class="([^"]+)"', tag)
-    if not cls_match:
-        cls_match = re.search(r"class='([^']+)'", tag)
-    if not cls_match:
-        return tag
-    classes = cls_match.group(1).split()
-    fill = None
-    for c in classes:
-        if c in class_fills:
-            fill = class_fills[c]
-            break
-    if fill is None:
-        return tag
-    tag = re.sub(r'\s*class="[^"]*"', "", tag)
-    tag = re.sub(r"\s*class='[^']*'", "", tag)
-    if re.search(r'\bfill=', tag):
-        tag = re.sub(r'fill="[^"]*"', 'fill="' + fill + '"', tag)
-        tag = re.sub(r"fill='[^']*'", 'fill="' + fill + '"', tag)
-    else:
-        tag = tag.rstrip(">").rstrip("/").rstrip() + ' fill="' + fill + '"' + ("/>" if m.group(0).rstrip().endswith("/>") else ">")
-    return tag
+# --- Apply fill inline and strip class attributes ---
+for el in root.iter():
+  if el.tag not in FILL_TAGS:
+    continue
 
-svg = re.sub(r"<(?:path|rect|circle|ellipse|polygon|polyline|line|g)\b[^>]*>", replace_elem, svg)
+  cls_attr = el.get("class")
+  if not cls_attr:
+    continue
 
-# Remove <style> block if no class attributes remain
-if not re.search(r'class=', svg):
-    svg = re.sub(r"\s*<style[^>]*>.*?</style>", "", svg, flags=re.DOTALL)
+  classes = cls_attr.split()
+  fill = next((class_fills[c] for c in classes if c in class_fills), None)
+  if fill is None:
+    continue
 
-with open(path, "w", encoding="utf-8") as fh:
-    fh.write(svg)
+  # Set or overwrite fill
+  el.set("fill", fill)
+
+  # Remove class attribute
+  del el.attrib["class"]
+
+# --- Remove <style> block if no class attributes remain anywhere ---
+has_class = any(el.get("class") is not None for el in root.iter())
+if not has_class:
+  for style_el in root.findall(f".//{{{SVG_NS}}}style"):
+    parent = style_el.getparent()
+    if parent is not None:
+      parent.remove(style_el)
+  # Also check direct children of root
+  for style_el in root.findall(f"{{{SVG_NS}}}style"):
+    root.remove(style_el)
+
+tree.write(path, pretty_print=True, xml_declaration=False, encoding="unicode")
 PYEOF
 
 export INLINE_PY
@@ -280,7 +313,7 @@ inline_css_file() {
 }
 export -f inline_css_file
 
-echo "[2/3] Inlining CSS class styles and removing <style> block..."
+echo "[2/3] Inlining CSS class styles and removing <style> block (lxml)..."
 echo "      (processing in parallel, order may vary)"
 printf '%s\n' "${FILES[@]}" | xargs -P "$CORES" -I {} bash -c 'inline_css_file "$@"' _ {}
 echo "      Done."

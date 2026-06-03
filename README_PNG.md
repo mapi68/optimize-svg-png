@@ -1,11 +1,11 @@
 # optimize-png: Batch PNG Optimiser
 
 **optimize-png** is a bash script that batch-optimises PNG files using ImageMagick.
-It trims excess uniform background and strips unnecessary embedded data from every file in a folder, fully automated from the command line.
+It strips unnecessary embedded data from every file in a folder, and optionally trims excess uniform margins, fully automated from the command line.
 
 ## Why this script?
 
-Manually trimming and cleaning dozens of PNG files is tedious and error-prone.
+Manually cleaning dozens of PNG files is tedious and error-prone.
 This script automates the entire process:
 
 - processes a whole folder in one command
@@ -18,20 +18,18 @@ This script automates the entire process:
 
 | Step | Tool | What happens |
 |------|------|-------------|
-| 1 | ImageMagick | Trims uniform background pixels at edges with zero colour tolerance |
-| 2 | ImageMagick | Strips embedded ICC profiles, EXIF data, comments and unnecessary PNG chunks |
+| 1 | ImageMagick | Strips embedded ICC profiles, EXIF data, comments and unnecessary PNG chunks |
+| 2 (with `--trim`) | ImageMagick | Trims uniform background pixels at edges with zero colour tolerance |
 
-### What `-fuzz 0%` means
+### What `--trim` does
 
-The `-fuzz` option defines a colour tolerance for trimming.
-A value of `0%` means **only perfectly identical pixels** at the image edges are considered background and removed.
-This conservative approach protects logos and designs with intricate borders, gradients or semi-transparent edges — nothing gets trimmed unless it's truly uniform background.
+Without `--trim` the script only strips metadata, leaving the canvas dimensions intact.
 
-### Why `-trim +repage`?
+With `--trim`, ImageMagick also runs `-trim -fuzz 0%`:
 
-`-trim` removes the border region of pixels that match the background.
-`+repage` resets the canvas size to match the trimmed image, removing any virtual offset that ImageMagick would otherwise keep from the original geometry.
-Without `+repage`, downstream tools may see the file as larger than it actually is.
+- `-fuzz 0%` means **only perfectly identical pixels** at the image edges are considered background and removed. This conservative approach protects logos and designs with intricate borders, gradients or semi-transparent edges.
+- `-trim` removes the border region of matching pixels.
+- `+repage` resets the canvas size to the trimmed image, removing any virtual offset ImageMagick would otherwise keep from the original geometry.
 
 ### Why `-strip`?
 
@@ -60,16 +58,23 @@ The script is now available system-wide as `optimize_png`.
 ## Usage
 
 ```bash
-optimize_png <folder>
+optimize_png [--trim] <folder>
 ```
 
 The original files are backed up to `<folder>_backup_png` before processing.
-If the backup folder already exists the script stops for safety, preventing accidental overwrites of a previous backup.
+If the backup folder already exists the script exits immediately without modifying anything.
+
+### Options
+
+`--trim` — trim excess uniform background pixels at edges (zero colour tolerance) and reset the canvas size.
+
+Without `--trim` only metadata is stripped and the original canvas dimensions are preserved exactly.
 
 ### Example
 
 ```bash
 optimize_png /home/user/picons/png
+optimize_png --trim /home/user/picons/png
 ```
 
 ```
@@ -77,6 +82,8 @@ Backup saved to: /home/user/picons/png_backup_png
 --------------------------------------------------------
 Starting PNG optimization in: /home/user/picons/png
 Files found: 12  |  CPU cores: 8
+--------------------------------------------------------
+Mode: strip metadata only (use --trim to also trim margins)
 --------------------------------------------------------
   ✓ icon_01.png
   ✓ icon_02.png
@@ -125,7 +132,7 @@ The final line shows total space saved across all processed files.
 ## Limitations
 
 - Processes only `.png` files at the top level of the specified folder (not recursive).
-- The `-fuzz 0%` setting is very conservative and trims only perfectly uniform background. Files with artwork extending to the edges may not be trimmed at all.
+- The `-fuzz 0%` setting (when using `--trim`) is very conservative and trims only perfectly uniform background. Files with artwork extending to the edges may not be trimmed at all.
 - The script is designed for Debian and Debian-based systems. It may work on other Linux distributions but `apt`-based auto-installation will not function outside Debian/Ubuntu.
 
 ## Windows users (WSL2)

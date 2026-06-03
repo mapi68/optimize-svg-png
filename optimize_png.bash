@@ -2,19 +2,18 @@
 
 usage() {
   cat <<USAGE
-Usage: $(basename "$0") <folder>
+Usage: $(basename "$0") [--trim] <folder>
 
-Optimizes all PNG files in the specified folder by removing empty or white
-margins and stripping unnecessary embedded data.
+Optimizes all PNG files in the specified folder by stripping unnecessary
+embedded data. With --trim, also removes empty or uniform margins.
 
 DESCRIPTION
   Processes all .png files in the given folder.
-  Trims excess uniform background (with 0% tolerance to preserve logo details).
-  Also removes profiles, comments, and unnecessary PNG chunks via the -strip flag.
+  Removes profiles, comments, and unnecessary PNG chunks via the -strip flag.
   Processing runs in parallel across all available CPU cores.
 
 IMPORTANT
-  - Original files are copied to FOLDER_backup before being modified.
+  - Original files are copied to FOLDER_backup_png before being modified.
   - If the backup folder already exists, the script stops for safety.
 
 REQUIREMENTS
@@ -22,16 +21,21 @@ REQUIREMENTS
   If missing, the script attempts to install it automatically via apt.
 
 ARGUMENTS
+  --trim     Trim excess uniform background pixels at edges (0% colour
+             tolerance, only perfectly identical pixels are removed).
+             Default: preserve original canvas dimensions.
+
   <folder>   Path to the folder containing the .png files
              Accepts both absolute and relative paths
 
 EXAMPLES
   $(basename "$0") ./my_pngs
+  $(basename "$0") --trim ./my_pngs
   $(basename "$0") /home/user/projects/images
 
 NOTES
-  - Runs ImageMagick with the following options:
-    "-trim -fuzz 0% +repage -strip"
+  - Without --trim runs ImageMagick with: "+repage -strip"
+  - With --trim runs ImageMagick with: "-trim -fuzz 0% +repage -strip"
   - The -strip flag removes embedded ICC profiles, comments, and EXIF chunks.
   - The -fuzz 0% ensures only perfectly uniform pixels at edges are trimmed.
 USAGE
@@ -43,12 +47,29 @@ if [[ $# -eq 0 || "$1" == "-h" || "$1" == "--help" ]]; then
   exit 0
 fi
 
+# Parse arguments
+TRIM=0
+POSITIONAL=()
+for arg in "$@"; do
+  case "$arg" in
+    --trim) TRIM=1 ;;
+    -*) echo "Error: unknown option '$arg'" >&2; usage; exit 1 ;;
+    *) POSITIONAL+=("$arg") ;;
+  esac
+done
+
+if [[ ${#POSITIONAL[@]} -ne 1 ]]; then
+  echo "Error: exactly one folder argument required." >&2
+  usage
+  exit 1
+fi
+
 # Resolve absolute path of the folder
-DIR=$(realpath "$1")
+DIR=$(realpath "${POSITIONAL[0]}")
 
 # Verify the folder exists
 if [[ ! -d "$DIR" ]]; then
-  echo "Error: '$1' is not a valid folder." >&2
+  echo "Error: '${POSITIONAL[0]}' is not a valid folder." >&2
   exit 1
 fi
 
@@ -101,14 +122,25 @@ echo "--------------------------------------------------------"
 
 TIME_START=$(date +%s)
 
+# Build ImageMagick options based on --trim flag
+if [[ $TRIM -eq 1 ]]; then
+  MAGICK_OPTS="-trim -fuzz 0% +repage -strip"
+  echo "Mode: trim uniform margins + strip metadata"
+else
+  MAGICK_OPTS="+repage -strip"
+  echo "Mode: strip metadata only (use --trim to also trim margins)"
+fi
+echo "--------------------------------------------------------"
+
 # Parallel optimization with safe write via temporary file
 MAGICK_BIN=$(command -v magick)
-export MAGICK_BIN
+export MAGICK_BIN MAGICK_OPTS
 
 printf '%s\n' "${FILES[@]}" | xargs -P "$CORES" -I {} bash -c '
   f="$1"
   TMP=$(mktemp --suffix=".png")
-  if "$MAGICK_BIN" "$f" -trim -fuzz 0% +repage -strip "$TMP" 2>/dev/null; then
+  read -ra opts <<< "$MAGICK_OPTS"
+  if "$MAGICK_BIN" "$f" "${opts[@]}" "$TMP" 2>/dev/null; then
     mv "$TMP" "$f"
     echo "  ✓ $(basename "$f")"
   else

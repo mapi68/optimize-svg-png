@@ -1,6 +1,6 @@
 # optimize-svg: Batch SVG Optimiser
 
-**optimize-svg** is a bash script that batch-optimises SVG files using Inkscape, Python and scour.
+**optimize-svg** is a bash script that batch-optimises SVG files using Inkscape, Python (lxml) and scour.
 It produces the same result as running Inkscape's built-in **Optimised SVG Output** extension on every file, fully automated from the command line.
 
 ## Why this script?
@@ -19,7 +19,7 @@ This script automates the entire process:
 | Step | Tool | What happens |
 |------|------|-------------|
 | 1 | Inkscape | Converts `<text>` and `<tspan>` to `<path>` (removes font dependency), preserves original canvas |
-| 2 | Python | Reads `fill` values from CSS `<style>` block, applies them inline on each element, removes the `<style>` block |
+| 2 | Python + lxml | Parses SVG with lxml, reads `fill` values from CSS `<style>` block, applies them inline on each element, removes the `<style>` block |
 | 3 | scour | Removes metadata, comments, unused IDs, shortens colour values, reduces coordinate precision, enables viewBox |
 
 ### Why convert text to path first?
@@ -34,11 +34,22 @@ If SVG files contain text elements with CSS classes defining fonts and colours, 
 
 After Inkscape converts text to path, the generated `<path>` elements still carry `class="..."` attributes referencing the original CSS. If left as-is, scour keeps the `<style>` block because the classes are still referenced. Step 2 moves the `fill` value directly onto each element so scour can remove everything CSS-related cleanly.
 
+### Why lxml for step 2?
+
+Step 2 uses **lxml** to parse and modify the SVG as a proper XML document rather than with regular expressions.
+This approach is correct regardless of the SVG source (Inkscape, Figma, Illustrator, etc.) because it:
+
+- handles namespace declarations and prefixes correctly
+- walks the element tree structurally, never pattern-matching raw text
+- only applies regex on the text content of `<style>` elements, where it is safe
+- preserves the full XML structure and all attributes not explicitly modified
+
 ## Requirements
 
 - Debian or WSL2 Debian (Windows users: see below)
 - Inkscape 1.4 or higher
 - Python 3
+- python3-lxml
 - scour
 
 All dependencies are **installed automatically** on first run via `apt`.
@@ -61,8 +72,8 @@ The script is now available system-wide as `optimize_svg`.
 optimize_svg [--trim] <folder>
 ```
 
-The original files are backed up to `<folder>_backup` before processing.
-If the backup folder already exists the script stops for safety, preventing accidental overwrites of a previous backup.
+The original files are backed up to `<folder>_backup_svg` before processing.
+If the backup folder already exists the script exits immediately without modifying anything.
 
 ### Options
 
@@ -79,14 +90,14 @@ optimize_svg /home/user/picons/svg
 ```
 
 ```
-Backup saved to: /home/user/picons/svg_backup
+Backup saved to: /home/user/picons/svg_backup_svg
 Starting SVG optimisation in: /home/user/picons/svg
 Files found: 16  |  CPU cores: 8
 --------------------------------------------------------
 [1/3] Inkscape: converting text to path, preserving canvas (sequential)...
       Done.
 --------------------------------------------------------
-[2/3] Inlining CSS class styles and removing <style> block...
+[2/3] Inlining CSS class styles and removing <style> block (lxml)...
       (processing in parallel, order may vary)
       Done.
 --------------------------------------------------------
