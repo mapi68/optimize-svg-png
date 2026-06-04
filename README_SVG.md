@@ -21,6 +21,7 @@ This script automates the entire process:
 | 1 | Inkscape | Converts `<text>` and `<tspan>` to `<path>` (removes font dependency), preserves original canvas |
 | 2 | Python + lxml | Parses SVG with lxml, reads `fill` values from CSS `<style>` block, applies them inline on each element, removes the `<style>` block |
 | 3 | scour | Removes metadata, comments, unused IDs, shortens colour values, reduces coordinate precision, enables viewBox |
+| 4 | Python + lxml | Parses each output file to verify it is valid XML; on failure restores the original from backup and marks the file `[RESTORED]` in the report |
 
 ### Why convert text to path first?
 
@@ -94,17 +95,24 @@ Backup saved to: /home/user/picons/svg_backup_svg
 Starting SVG optimisation in: /home/user/picons/svg
 Files found: 16  |  CPU cores: 8
 --------------------------------------------------------
-[1/3] Inkscape: converting text to path, preserving canvas (sequential)...
+[1/4] Inkscape: converting text to path, preserving canvas (sequential)...
       Done.
 --------------------------------------------------------
-[2/3] Inlining CSS class styles and removing <style> block (lxml)...
+[2/4] Inlining CSS class styles and removing <style> block (lxml)...
       (processing in parallel, order may vary)
       Done.
 --------------------------------------------------------
-[3/3] scour: optimising 16 files using 8 cores...
+[3/4] scour: optimising 16 files using 8 cores...
       (processing in parallel, order may vary)
 Scour processed file "icon.svg" in 9 ms: 2119/3388 bytes -> 62.5%
 ...
+--------------------------------------------------------
+[4/4] Verifying XML integrity of output files...
+      (processing in parallel, order may vary)
+  ✓ icon_01.svg
+  ✓ icon_02.svg
+  ...
+      Done.
 --------------------------------------------------------
 Done! Processed 16 files in 5s using 8 cores.
 ```

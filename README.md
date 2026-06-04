@@ -14,6 +14,7 @@ Inkscape runs in shell mode (single launch), Python (lxml) and scour run in para
 - **Step 1 – Inkscape:** converts `<text>` to `<path>`, preserves original canvas (use `--trim` to fit canvas to drawing)
 - **Step 2 – Python + lxml:** parses SVG with lxml, inlines CSS `fill` values, removes `<style>` block
 - **Step 3 – scour:** cleans and compresses SVG (metadata, comments, IDs, precision, viewBox)
+- **Step 4 – Python + lxml:** verifies each output file is valid XML; restores from backup and marks `[RESTORED]` in the report if corrupted
 
 Original files are backed up to `<folder>_backup_svg` before any modification.
 
