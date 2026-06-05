@@ -42,6 +42,10 @@ DESCRIPTION
     - Enables viewBox
     - Removes unused IDs and shortens the remaining ones
 
+  Step 4 - Integrity check (parallel, all CPU cores):
+    - Parses each output file with lxml to verify it is valid XML
+    - On failure: restores the original from backup and flags the file
+
 # IMPORTANT
   - Original files are copied to FOLDER_NAME_backup before being modified.
   - If the backup folder already exists, the script stops for safety.
@@ -206,10 +210,10 @@ TIME_START=$(date +%s)
 # empty margins and are certain no stroke will be cut.
 if [[ $TRIM -eq 1 ]]; then
   EXPORT_AREA="export-area-drawing"
-  echo "[1/3] Inkscape: converting text to path, trimming canvas (sequential)..."
+  echo "[1/4] Inkscape: converting text to path, trimming canvas (sequential)..."
 else
   EXPORT_AREA="export-area-page"
-  echo "[1/3] Inkscape: converting text to path, preserving canvas (sequential)..."
+  echo "[1/4] Inkscape: converting text to path, preserving canvas (sequential)..."
 fi
 for f in "${FILES[@]}"; do
   printf 'file-open:%s; select-all; export-text-to-path; %s; export-plain-svg; export-filename:%s; export-do; file-close\n' "$f" "$EXPORT_AREA" "$f"
@@ -243,10 +247,22 @@ from lxml import etree
 
 SVG_NS = "http://www.w3.org/2000/svg"
 
-# Tags that can carry a fill attribute (mirrors the original script's scope)
-FILL_TAGS = {
+# Tags that can carry presentation attributes
+STYLED_TAGS = {
   f"{{{SVG_NS}}}{tag}"
-  for tag in ("path", "rect", "circle", "ellipse", "polygon", "polyline", "line", "g")
+  for tag in ("path", "rect", "circle", "ellipse", "polygon", "polyline", "line", "g",
+              "text", "tspan", "use", "symbol")
+}
+
+# CSS properties that map directly to SVG presentation attributes
+# Only properties that are valid as XML attributes on SVG elements
+PRESENTATION_PROPS = {
+  "fill", "fill-opacity", "fill-rule",
+  "stroke", "stroke-width", "stroke-opacity", "stroke-linecap",
+  "stroke-linejoin", "stroke-miterlimit", "stroke-dasharray", "stroke-dashoffset",
+  "opacity", "display", "visibility",
+  "font-family", "font-size", "font-style", "font-weight",
+  "color", "stop-color", "stop-opacity",
 }
 
 path = sys.argv[1]
@@ -255,39 +271,67 @@ parser = etree.XMLParser(remove_comments=False, recover=True)
 tree = etree.parse(path, parser)
 root = tree.getroot()
 
-# --- Extract fill values from CSS <style> block ---
-# Looks for rules of the form:  .classname { ... fill: value; ... }
-# Uses a simple regex on the text content of <style> elements only,
+# --- Extract all presentation properties from CSS <style> block ---
+# Handles both single and grouped selectors, e.g.:
+#   .a { fill: #fff; }
+#   .a, .b { stroke: #000; stroke-width: 2px; }
+# Uses regex on the text content of <style> elements only,
 # which is safe and reliable (CSS text is not nested XML).
-class_fills: dict[str, str] = {}
+# Result: { "classname": { "prop": "value", ... }, ... }
+class_props: dict[str, dict[str, str]] = {}
 
 for style_el in root.iter(f"{{{SVG_NS}}}style"):
   css_text = style_el.text or ""
-  for m in re.finditer(
-    r"\.([\w-]+)\s*\{[^}]*?fill\s*:\s*([^;}/]+)", css_text, re.DOTALL
-  ):
-    class_fills[m.group(1)] = m.group(2).strip()
+  for m in re.finditer(r"([^{}]+)\{([^}]*)\}", css_text, re.DOTALL):
+    selector_group = m.group(1)
+    declarations   = m.group(2)
+    # Parse all property:value pairs in the declaration block
+    props = {}
+    for decl in re.finditer(r"([\w-]+)\s*:\s*([^;}/]+)", declarations):
+      prop  = decl.group(1).strip()
+      value = decl.group(2).strip()
+      if prop in PRESENTATION_PROPS:
+        props[prop] = value
+    if not props:
+      continue
+    # Apply the props to every class name in the selector group
+    for selector in selector_group.split(","):
+      cls_m = re.search(r"\.([\w-]+)", selector.strip())
+      if cls_m:
+        cls = cls_m.group(1)
+        if cls not in class_props:
+          class_props[cls] = {}
+        # Later rules override earlier ones (CSS cascade)
+        class_props[cls].update(props)
 
-if not class_fills:
-  # Nothing to do: no CSS classes with fill definitions found
+if not class_props:
+  # Nothing to do: no CSS classes with presentation properties found
   sys.exit(0)
 
-# --- Apply fill inline and strip class attributes ---
+# --- Apply properties inline and strip class attributes ---
 for el in root.iter():
-  if el.tag not in FILL_TAGS:
+  if el.tag not in STYLED_TAGS:
     continue
 
   cls_attr = el.get("class")
   if not cls_attr:
     continue
 
-  classes = cls_attr.split()
-  fill = next((class_fills[c] for c in classes if c in class_fills), None)
-  if fill is None:
+  # Merge props from all classes on this element (left to right, later wins)
+  merged: dict[str, str] = {}
+  matched = False
+  for cls in cls_attr.split():
+    if cls in class_props:
+      merged.update(class_props[cls])
+      matched = True
+
+  if not matched:
     continue
 
-  # Set or overwrite fill
-  el.set("fill", fill)
+  # Set each property as an XML attribute (only if not already set inline)
+  for prop, value in merged.items():
+    if el.get(prop) is None:
+      el.set(prop, value)
 
   # Remove class attribute
   del el.attrib["class"]
@@ -313,7 +357,7 @@ inline_css_file() {
 }
 export -f inline_css_file
 
-echo "[2/3] Inlining CSS class styles and removing <style> block (lxml)..."
+echo "[2/4] Inlining CSS class styles and removing <style> block (lxml)..."
 echo "      (processing in parallel, order may vary)"
 printf '%s\n' "${FILES[@]}" | xargs -P "$CORES" -I {} bash -c 'inline_css_file "$@"' _ {}
 echo "      Done."
@@ -324,7 +368,7 @@ SCOUR_OPTS_STR="${SCOUR_OPTS[*]}"
 SCOUR_PATH="$PATH"
 export SCOUR_OPTS_STR SCOUR_PATH
 
-echo "[3/3] scour: optimising $TOTAL files using $CORES cores..."
+echo "[3/4] scour: optimising $TOTAL files using $CORES cores..."
 echo "      (processing in parallel, order may vary)"
 
 printf '%s\n' "${FILES[@]}" | xargs -P "$CORES" -I {} bash -c '
@@ -345,12 +389,12 @@ echo "--------------------------------------------------------"
 
 # STEP 4: integrity check - verify each output file is valid XML (parallel)
 # Uses lxml to parse the final file. On failure, the original is restored
-# from backup and the file is flagged in the report.
-echo "[4/4] Verifying XML integrity of output files..."
-echo "      (processing in parallel, order may vary)"
-
+# from backup and the file is recorded in CORRUPTED_LIST for the report.
 CORRUPTED_LIST=$(mktemp)
 export BACKUP_DIR CORRUPTED_LIST
+
+echo "[4/4] Verifying XML integrity of output files..."
+echo "      (processing in parallel, order may vary)"
 
 printf '%s\n' "${FILES[@]}" | xargs -P "$CORES" -I {} bash -c '
   f="$1"
@@ -365,7 +409,6 @@ printf '%s\n' "${FILES[@]}" | xargs -P "$CORES" -I {} bash -c '
 ' _ {}
 
 CORRUPTED_COUNT=$(wc -l < "$CORRUPTED_LIST")
-rm -f "$CORRUPTED_LIST"
 
 echo "      Done."
 echo "--------------------------------------------------------"
@@ -412,23 +455,13 @@ fmt_size() {
   if [[ $DIVISOR -eq 1 ]]; then
     printf "%d B" "$bytes"
   else
-    awk "BEGIN { printf \"%.2f $UNIT\", $bytes / $DIVISOR }"
+    awk -v b="$bytes" -v d="$DIVISOR" -v u="$UNIT" 'BEGIN { printf "%.2f " u, b / d }'
   fi
 }
 
 # Print separator sized to content
 SEP=$(printf '%*s' "$((COL + 36))" '' | tr ' ' '-')
 echo "$SEP"
-
-# Build a set of restored filenames for quick lookup in the report
-declare -A RESTORED_FILES
-while IFS= read -r rname; do
-  RESTORED_FILES["$rname"]=1
-done < <(grep -r "" "$BACKUP_DIR"/../ 2>/dev/null || true)
-# Re-read corrupted list if it still exists (it was removed above, so rebuild from stderr not possible)
-# Instead, mark restored files by comparing sizes: if after == before, likely restored
-# More reliable: track via a persistent temp file before rm
-# (CORRUPTED_LIST was already removed; CORRUPTED_COUNT is available for summary only)
 
 for f in "${FILES[@]}"; do
   name=$(basename "$f")
@@ -442,13 +475,13 @@ for f in "${FILES[@]}"; do
 
   if [[ $before -gt 0 ]]; then
     saved=$((before - after))
-    pct=$(awk "BEGIN { printf "%.1f", ($saved / $before) * 100 }")
+    pct=$(awk -v s="$saved" -v b="$before" 'BEGIN { printf "%.1f", (s / b) * 100 }')
   else
     pct="0.0"
   fi
 
-  # Mark files that were restored (size equals backup = no change after restoration)
-  if [[ $before -eq $after && $before -gt 0 && $CORRUPTED_COUNT -gt 0 ]]; then
+  # Mark files that failed integrity check and were restored from backup
+  if grep -qxF "$name" "$CORRUPTED_LIST" 2>/dev/null; then
     printf "  %-${COL}s  %10s  →  %10s  (%s%%)  [RESTORED]\n" \
       "$name" "$(fmt_size "$before")" "$(fmt_size "$after")" "$pct"
   else
@@ -460,7 +493,7 @@ done
 echo "$SEP"
 TOTAL_SAVED=$((SIZE_BEFORE - SIZE_AFTER))
 if [[ $SIZE_BEFORE -gt 0 ]]; then
-  TOTAL_PCT=$(awk "BEGIN { printf \"%.1f\", ($TOTAL_SAVED / $SIZE_BEFORE) * 100 }")
+  TOTAL_PCT=$(awk -v s="$TOTAL_SAVED" -v b="$SIZE_BEFORE" 'BEGIN { printf "%.1f", (s / b) * 100 }')
 else
   TOTAL_PCT="0.0"
 fi
@@ -469,3 +502,5 @@ printf "  %-${COL}s  %10s  →  %10s\n" \
   "$TOTAL_LABEL" "$(fmt_size "$SIZE_BEFORE")" "$(fmt_size "$SIZE_AFTER")"
 printf "  Space saved: %s  (%s%%)\n" "$(fmt_size "$TOTAL_SAVED")" "$TOTAL_PCT"
 echo "========================================================"
+
+rm -f "$CORRUPTED_LIST"

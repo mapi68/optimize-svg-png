@@ -189,7 +189,7 @@ fmt_size() {
   if [[ $DIVISOR -eq 1 ]]; then
     printf "%d B" "$bytes"
   else
-    awk "BEGIN { printf \"%.2f $UNIT\", $bytes / $DIVISOR }"
+    awk -v b="$bytes" -v d="$DIVISOR" -v u="$UNIT" 'BEGIN { printf "%.2f " u, b / d }'
   fi
 }
 
@@ -208,7 +208,7 @@ for f in "${FILES[@]}"; do
 
   if [[ $before -gt 0 ]]; then
     saved=$((before - after))
-    pct=$(awk "BEGIN { printf \"%.1f\", ($saved / $before) * 100 }")
+    pct=$(awk -v s="$saved" -v b="$before" 'BEGIN { printf "%.1f", (s / b) * 100 }')
   else
     pct="0.0"
   fi
@@ -220,7 +220,7 @@ done
 echo "$SEP"
 TOTAL_SAVED=$((SIZE_BEFORE - SIZE_AFTER))
 if [[ $SIZE_BEFORE -gt 0 ]]; then
-  TOTAL_PCT=$(awk "BEGIN { printf \"%.1f\", ($TOTAL_SAVED / $SIZE_BEFORE) * 100 }")
+  TOTAL_PCT=$(awk -v s="$TOTAL_SAVED" -v b="$SIZE_BEFORE" 'BEGIN { printf "%.1f", (s / b) * 100 }')
 else
   TOTAL_PCT="0.0"
 fi
