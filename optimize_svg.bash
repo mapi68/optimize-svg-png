@@ -437,25 +437,15 @@ TOTAL_LABEL="TOTAL ($TOTAL files)"
 [[ ${#TOTAL_LABEL} -gt $MAX_NAME ]] && MAX_NAME=${#TOTAL_LABEL}
 COL=$((MAX_NAME + 2))
 
-# Choose display unit based on the largest file size
-MAX_SIZE=0
-for f in "${FILES[@]}"; do
-  backup="$BACKUP_DIR/$(basename "$f")"
-  sz=$(stat -c '%s' "$backup" 2>/dev/null || echo 0)
-  [[ $sz -gt $MAX_SIZE ]] && MAX_SIZE=$sz
-done
-if   [[ $MAX_SIZE -ge 1048576 ]]; then UNIT="MB"; DIVISOR=1048576
-elif [[ $MAX_SIZE -ge 1024 ]];    then UNIT="KB"; DIVISOR=1024
-else                                    UNIT="B";  DIVISOR=1
-fi
-
-# Helper: format bytes in chosen unit (2 decimal places unless B)
+# Helper: format bytes with per-value adaptive unit (2 decimal places unless B)
 fmt_size() {
   local bytes=$1
-  if [[ $DIVISOR -eq 1 ]]; then
-    printf "%d B" "$bytes"
+  if   [[ $bytes -ge 1048576 ]]; then
+    awk -v b="$bytes" 'BEGIN { printf "%.2f MB", b / 1048576 }'
+  elif [[ $bytes -ge 1024 ]]; then
+    awk -v b="$bytes" 'BEGIN { printf "%.2f KB", b / 1024 }'
   else
-    awk -v b="$bytes" -v d="$DIVISOR" -v u="$UNIT" 'BEGIN { printf "%.2f " u, b / d }'
+    printf "%d B" "$bytes"
   fi
 }
 
