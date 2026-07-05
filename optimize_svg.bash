@@ -347,7 +347,7 @@ if not has_class:
   for style_el in root.findall(f"{{{SVG_NS}}}style"):
     root.remove(style_el)
 
-tree.write(path, pretty_print=True, xml_declaration=False, encoding="unicode")
+tree.write(path, pretty_print=True, xml_declaration=False, encoding="utf-8")
 PYEOF
 
 export INLINE_PY
