@@ -278,7 +278,7 @@ root = tree.getroot()
 # Uses regex on the text content of <style> elements only,
 # which is safe and reliable (CSS text is not nested XML).
 # Result: { "classname": { "prop": "value", ... }, ... }
-class_props: dict[str, dict[str, str]] = {}
+class_props = {}
 
 for style_el in root.iter(f"{{{SVG_NS}}}style"):
   css_text = style_el.text or ""
@@ -318,7 +318,7 @@ for el in root.iter():
     continue
 
   # Merge props from all classes on this element (left to right, later wins)
-  merged: dict[str, str] = {}
+  merged = {}
   matched = False
   for cls in cls_attr.split():
     if cls in class_props:
@@ -347,7 +347,7 @@ if not has_class:
   for style_el in root.findall(f"{{{SVG_NS}}}style"):
     root.remove(style_el)
 
-tree.write(path, pretty_print=True, xml_declaration=False, encoding="utf-8")
+tree.write(path, pretty_print=True, xml_declaration=False, encoding="unicode")
 PYEOF
 
 export INLINE_PY

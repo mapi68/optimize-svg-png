@@ -17,7 +17,8 @@ IMPORTANT
   - If the backup folder already exists, the script stops for safety.
 
 REQUIREMENTS
-  - ImageMagick ('magick' command)
+  - ImageMagick (uses the 'magick' command on v7+, or 'convert' on v6,
+    e.g. Ubuntu 18.04)
   If missing, the script attempts to install it automatically via apt.
 
 ARGUMENTS
@@ -73,26 +74,34 @@ if [[ ! -d "$DIR" ]]; then
   exit 1
 fi
 
-# Automatic dependency installation function
-install_dependency() {
-  local cmd="$1"
-  local package="$2"
-
-  if ! command -v "$cmd" &>/dev/null; then
-    echo "Missing dependency: '$cmd'. Attempting installation..."
-    sudo apt update -qq && sudo apt install -y "$package"
-
-    # Verify installation succeeded
-    if ! command -v "$cmd" &>/dev/null; then
-      echo "Error: installation of '$package' failed. Please install it manually." >&2
-      exit 1
-    fi
-
-    echo "  ✓ '$cmd' installed successfully."
+# Detect ImageMagick binary: 'magick' (IM7+) or fallback to 'convert' (IM6,
+# e.g. Ubuntu 18.04, which ships ImageMagick 6.9.7 without the 'magick' command).
+detect_or_install_imagemagick() {
+  if command -v magick &>/dev/null; then
+    IM_BIN=$(command -v magick)
+    return
   fi
+  if command -v convert &>/dev/null; then
+    IM_BIN=$(command -v convert)
+    return
+  fi
+
+  echo "Missing dependency: ImageMagick. Attempting installation..."
+  sudo apt update -qq && sudo apt install -y imagemagick
+
+  if command -v magick &>/dev/null; then
+    IM_BIN=$(command -v magick)
+  elif command -v convert &>/dev/null; then
+    IM_BIN=$(command -v convert)
+  else
+    echo "Error: installation of 'imagemagick' failed. Please install it manually." >&2
+    exit 1
+  fi
+
+  echo "  ✓ ImageMagick installed successfully."
 }
 
-install_dependency "magick" "imagemagick"
+detect_or_install_imagemagick
 
 # Build the list of PNG files
 mapfile -t FILES < <(find "$DIR" -maxdepth 1 -name "*.png" | sort)
@@ -133,7 +142,7 @@ fi
 echo "--------------------------------------------------------"
 
 # Parallel optimization with safe write via temporary file
-MAGICK_BIN=$(command -v magick)
+MAGICK_BIN="$IM_BIN"
 export MAGICK_BIN MAGICK_OPTS
 
 printf '%s\n' "${FILES[@]}" | xargs -P "$CORES" -I {} bash -c '
