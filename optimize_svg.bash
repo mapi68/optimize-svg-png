@@ -126,7 +126,11 @@ if [[ ! -d "$DIR" ]]; then
 fi
 
 # Temporary files: cleaned up on any exit
-WORK=$(mktemp -d)
+# WORK is created in $HOME (not /tmp) because a snap-installed Inkscape has
+# its own private /tmp and could not read the command list written there.
+# The name must not start with a dot: snap apps cannot read hidden folders
+# in $HOME.
+WORK=$(mktemp -d -p "$HOME")
 CORRUPTED_LIST=$(mktemp)
 SCOUR_FAILED_LIST=$(mktemp)
 INLINE_PY=$(mktemp --suffix=".py")
