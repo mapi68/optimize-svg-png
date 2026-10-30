@@ -1,8 +1,22 @@
 #!/bin/bash
 
+PROGRAM_NAME="PNG Optimizer"
+VERSION="0.1.0"
+
+print_version() {
+  printf '%s v%s\n' "$PROGRAM_NAME" "$VERSION"
+}
+
+print_banner() {
+  echo "========================================================"
+  print_version
+  echo "========================================================"
+}
+
 usage() {
   cat <<USAGE
-Usage: $(basename "$0") [--trim] [--keep-icc] <folder>
+Usage: $(basename "$0") [--version|-V]
+       $(basename "$0") [--trim] [--keep-icc] <folder>
 
 Optimizes all PNG files in the specified folder by stripping unnecessary
 embedded data. With --trim, also removes empty or uniform margins.
@@ -33,6 +47,9 @@ REQUIREMENTS
     If it cannot be installed, the script warns and falls back to ImageMagick.
 
 ARGUMENTS
+  --version, -V Display the program name and version, then exit.
+  -h, --help    Display this help message, then exit.
+
   --trim     Trim excess uniform background pixels at edges (0% colour
              tolerance, only perfectly identical pixels are removed).
              Default: preserve original canvas dimensions.
@@ -68,6 +85,12 @@ USAGE
 # Argument check (help)
 if [[ $# -eq 0 || "$1" == "-h" || "$1" == "--help" ]]; then
   usage
+  exit 0
+fi
+
+# Version option (standalone; no dependencies are required).
+if [[ $# -eq 1 && ( "$1" == "--version" || "$1" == "-V" ) ]]; then
+  print_version
   exit 0
 fi
 
@@ -224,9 +247,9 @@ fi
 mkdir -p "$BACKUP_DIR"
 cp -- "${FILES[@]}" "$BACKUP_DIR"/
 echo "Backup saved to: $BACKUP_DIR"
-echo "--------------------------------------------------------"
 
 CORES=$(nproc)
+print_banner
 echo "Starting PNG optimization in: $DIR"
 echo "Files found: $TOTAL  |  CPU cores: $CORES"
 echo "--------------------------------------------------------"

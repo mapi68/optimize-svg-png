@@ -1,16 +1,22 @@
 #!/bin/bash
-#
-# optimize_svg - Batch SVG optimiser with text-to-path conversion
-# Optimised for Debian / WSL2 Debian
-#
-# INSTALLATION (after downloading optimize_svg.bash):
-#   mkdir -p ~/.local/bin
-#   cp optimize_svg.bash ~/.local/bin/optimize_svg
-#   chmod +x ~/.local/bin/optimize_svg
+
+PROGRAM_NAME="SVG Optimizer"
+VERSION="0.1.0"
+
+print_version() {
+  printf '%s v%s\n' "$PROGRAM_NAME" "$VERSION"
+}
+
+print_banner() {
+  echo "========================================================"
+  print_version
+  echo "========================================================"
+}
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [--trim] [--keep-ids] <folder>
+Usage: $(basename "$0") [--version|-V]
+       $(basename "$0") [--trim] [--keep-ids] <folder>
 
 Converts text to path, inlines CSS styles and optimises all SVG files
 in the specified folder. Equivalent to Inkscape's "Optimised SVG Output"
@@ -66,6 +72,9 @@ REQUIREMENTS
   - scour                   (auto-installed via apt if missing)
 
 ARGUMENTS
+  --version, -V Display the program name and version, then exit.
+  -h, --help    Display this help message, then exit.
+
   --trim     Fit canvas to drawing content (removes empty margins).
              Warning: may clip edges on files with strokes near the border.
              Default: preserve the original canvas dimensions.
@@ -94,6 +103,12 @@ EOF
 # Argument check (help)
 if [[ $# -eq 0 || "$1" == "-h" || "$1" == "--help" ]]; then
   usage
+  exit 0
+fi
+
+# Version option (standalone; no dependencies are required).
+if [[ $# -eq 1 && ( "$1" == "--version" || "$1" == "-V" ) ]]; then
+  print_version
   exit 0
 fi
 
@@ -208,6 +223,7 @@ cp -- "${FILES[@]}" "$BACKUP_DIR"/
 echo "Backup saved to: $BACKUP_DIR"
 
 CORES=$(nproc)
+print_banner
 echo "Starting SVG optimisation in: $DIR"
 echo "Files found: $TOTAL  |  CPU cores: $CORES  |  Inkscape: $INK_VER"
 echo "--------------------------------------------------------"
